@@ -41,6 +41,20 @@ test('tracker: Shift+Backspace -> undo, buffer untouched', () => {
   assert.equal(t.buffer, '');
 });
 
+test('tracker: Right arrow -> word accept (win32 / CSI / SS3)', () => {
+  const t = new InputTracker();
+  assert.equal(t.feed('\x1b[39;0;0;1;0;1_'), 'word');   // win32 VK_RIGHT
+  assert.equal(t.feed('\x1b[C'), 'word');                // CSI right
+  assert.equal(t.feed('\x1bOC'), 'word');                // SS3 right
+});
+
+test('tracker: cross-platform Shift+Backspace -> undo (kitty / xterm)', () => {
+  const t = new InputTracker();
+  assert.equal(t.feed('\x1b[127;2u'), 'undo');           // kitty, shift mod
+  assert.equal(t.feed('\x1b[27;2;8~'), 'undo');          // xterm modifyOtherKeys
+  assert.equal(t.feed('\x1b[127;1u'), 'edit');           // no shift = plain backspace
+});
+
 test('providers.clean: drops chatty refusals, keeps real completions', () => {
   assert.equal(_internal.clean("I don't have enough context to complete.", ''), '');
   assert.equal(_internal.clean('Could you provide more?', ''), '');

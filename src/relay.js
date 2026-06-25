@@ -24,21 +24,32 @@ export function startRelay(agentArgv, cfg) {
 
   let suggestion = '';   // full suggestion (what Tab injects)
   let shown = '';        // truncated text currently drawn on screen
-  let lastAccepted = ''; // last Tab-accepted suffix, for Shift+Backspace undo
+  let lastAccepted = ''; // last accepted suffix (Tab or →), for Shift+Backspace undo
   let timer = null;
+  let renderTimer = null;
   let reqId = 0;
 
   const out = s => process.stdout.write(s);
 
+  // Estimate the cursor's column on its current visual row, accounting for
+  // line wrap and multi-line (Shift+Enter) prompts. "❯ " (2 cols) prefixes
+  // only the first line. ponytail ceiling: assumes 1-col-per-char width.
+  function cursorCol() {
+    const width = process.stdout.columns || cols;
+    const buf = tracker.buffer;
+    const nl = buf.lastIndexOf('\n');
+    const lineLen = nl >= 0 ? buf.length - nl - 1 : 2 + buf.length;
+    return lineLen % width;
+  }
+
   // Inline ghost text: draw dim text AT the cursor (input end), then restore
-  // the cursor so it stays put and the suggestion appears to the right.
-  // ponytail ceiling: single-line assumption — column estimated as the prompt
-  // glyph + typed length; long/ wrapped input degrades gracefully (skips draw).
+  // the cursor so it stays put and the suggestion appears to the right. The
+  // ghost is truncated to fit the rest of the current row, so it never wraps
+  // (which keeps the single-line clear-to-EOL erase correct even mid-wrap).
   function renderSuggestion() {
     if (!suggestion) return;
     const width = process.stdout.columns || cols;
-    const col = 2 + tracker.buffer.length;      // "❯ " + typed text
-    const avail = width - col - 1;
+    const avail = width - cursorCol() - 1;
     if (avail < 4) return;
     shown = suggestion.replace(/\r?\n/g, ' ').slice(0, avail);
     out(`\x1b7${DIM}${shown}${RESET}\x1b8`);     // save cursor, dim text, restore
@@ -95,6 +106,21 @@ export function startRelay(agentArgv, cfg) {
       lastAccepted = s;
       child.write(s);        // inject accepted text into the agent
       return;                // swallow the Tab
+    }
+    if (type === 'word' && suggestion) {     // Right arrow — accept one word
+      const m = suggestion.match(/^\s*\S+/);
+      if (m) {
+        const word = m[0];
+        if (shown) { out(`\x1b7\x1b[0K\x1b8`); shown = ''; }   // erase current ghost
+        suggestion = suggestion.slice(word.length);
+        tracker.accept(word);
+        lastAccepted = word;
+        child.write(word);
+        // Re-draw the remaining ghost after the agent advances the cursor.
+        if (renderTimer) clearTimeout(renderTimer);
+        renderTimer = setTimeout(renderSuggestion, 60);
+      }
+      return;                // swallow the arrow
     }
     if (type === 'undo') {    // Shift+Backspace — remove the last accepted suffix
       clearSuggestion();

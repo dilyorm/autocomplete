@@ -19,7 +19,7 @@ Terminal agents own their input box — there's no plugin hook for autocomplete.
 
 - **Inline ghost text** — dim suggestion at the cursor, not a popup.
 - **Context-aware** — uses your partial prompt, the recent conversation on screen, and your installed Claude Code skills.
-- **One key** — `Tab` accepts, `Shift+Backspace` undoes the last accepted suggestion, typing dismisses.
+- **One key** — `Tab` accepts the whole suggestion, `→` accepts one word, `Shift+Backspace` undoes the last accept, typing dismisses.
 - **Zero-setup auth** — reuses your existing Claude Code login by default. No API key needed.
 - **Bring your own model** — or plug in Anthropic / DeepSeek / OpenAI / Gemini.
 - **Never in your way** — on any error it degrades to a plain transparent passthrough.
@@ -52,8 +52,9 @@ Type a prompt, pause briefly, and a grey suggestion appears. **Tab** to accept.
 
 | Key | Action |
 | --- | --- |
-| `Tab` | accept the suggestion |
-| `Shift+Backspace` | undo the last accepted suggestion *(Windows)* |
+| `Tab` | accept the whole suggestion |
+| `→` (Right arrow) | accept one word |
+| `Shift+Backspace` | undo the last accept |
 | *keep typing* | dismiss / refine |
 
 ## Configuration
@@ -94,16 +95,13 @@ It mirrors your input from raw keystrokes (decoding Windows `win32-input-mode` r
 
 ## Limitations
 
-- **Inline render assumes a single-line prompt.** Very long / wrapped input degrades gracefully (skips the draw).
-- **`Shift+Backspace` undo is Windows-only** for now (relies on `win32-input-mode` modifier reporting).
+- **`Shift+Backspace` undo needs a terminal that reports key modifiers** (Windows `win32-input-mode`, kitty, or xterm `modifyOtherKeys`). On terminals that don't, it falls back to a plain backspace.
+- The ghost is **truncated to the current row** rather than wrapping, so it never collides with the agent's own footer.
 - **`auto` mode reuses the Claude Code login token** — convenient but undocumented; it falls back silently if the token is missing or rejected.
 - Bracketed-paste and Ctrl-modified characters are best-effort in the buffer mirror.
 
 ## Roadmap
 
-- [ ] Cross-platform `Shift+Backspace` undo
-- [ ] Word-at-a-time accept (`→`)
-- [ ] Multi-line / wrapped prompt rendering
 - [ ] Self-hostable free-tier proxy
 - [ ] Demo GIF
 
