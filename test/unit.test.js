@@ -17,6 +17,21 @@ test('tracker: builds buffer, backspace, enter clears, tab is non-mutating', () 
   assert.equal(t.buffer, '');         // enter clears
 });
 
+test('tracker: decodes win32-input-mode records, ignores key-up/focus', () => {
+  const t = new InputTracker();
+  // 'a' down (Uc=97,Kd=1) + 'a' up (Kd=0) + 'b' down — only downs count
+  t.feed('\x1b[65;30;97;1;32;1_');   // a down
+  t.feed('\x1b[65;30;97;0;32;1_');   // a up (ignored)
+  t.feed('\x1b[66;48;98;1;32;1_');   // b down
+  assert.equal(t.buffer, 'ab');
+  t.feed('\x1b[I');                  // focus-in (ignored, no mutation)
+  assert.equal(t.buffer, 'ab');
+  assert.equal(t.feed('\x1b[8;14;8;1;32;1_'), 'edit');   // backspace down
+  assert.equal(t.buffer, 'a');
+  assert.equal(t.feed('\x1b[9;15;9;1;32;1_'), 'tab');    // tab down -> non-mutating
+  assert.equal(t.buffer, 'a');
+});
+
 test('tracker: accept appends suggestion suffix', () => {
   const t = new InputTracker();
   t.feed('add ');
