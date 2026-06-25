@@ -2,6 +2,7 @@ import pty from 'node-pty';
 import { InputTracker } from './tracker.js';
 import { Transcript, installedSkills, buildContext } from './context.js';
 import { complete } from './providers.js';
+import { dbg } from './log.js';
 
 const DIM = '\x1b[90m', RESET = '\x1b[0m';
 
@@ -49,11 +50,14 @@ export function startRelay(agentArgv, cfg) {
       if (!buffer.trim()) return;
       const myId = ++reqId;
       const ctx = buildContext({ buffer, transcript, skills });
+      dbg('REQ', myId, 'buffer=', buffer);
       const text = await complete(cfg, ctx);
+      dbg('RESP', myId, 'text=', text, 'stale=', myId !== reqId || tracker.buffer !== buffer);
       // Drop if the buffer moved on or a newer request started.
       if (myId !== reqId || tracker.buffer !== buffer || !text) return;
       suggestion = text;
       renderSuggestion();
+      dbg('RENDER', suggestion);
     }, cfg.debounceMs);
   }
 
@@ -75,6 +79,7 @@ export function startRelay(agentArgv, cfg) {
 
   process.stdin.on('data', chunk => {
     const type = tracker.feed(chunk);
+    dbg('KEY type=', type, 'buf=', tracker.buffer);
     if (type === 'tab' && suggestion) {
       const s = suggestion;
       clearSuggestion();
