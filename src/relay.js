@@ -24,6 +24,7 @@ export function startRelay(agentArgv, cfg) {
 
   let suggestion = '';   // full suggestion (what Tab injects)
   let shown = '';        // truncated text currently drawn on screen
+  let lastAccepted = ''; // last Tab-accepted suffix, for Shift+Backspace undo
   let timer = null;
   let reqId = 0;
 
@@ -91,12 +92,24 @@ export function startRelay(agentArgv, cfg) {
       const s = suggestion;
       clearSuggestion();
       tracker.accept(s);
+      lastAccepted = s;
       child.write(s);        // inject accepted text into the agent
       return;                // swallow the Tab
     }
+    if (type === 'undo') {    // Shift+Backspace — remove the last accepted suffix
+      clearSuggestion();
+      if (lastAccepted) {
+        const n = lastAccepted.length;
+        tracker.buffer = tracker.buffer.slice(0, -n);
+        child.write('\x7f'.repeat(n));   // backspaces into the agent
+        lastAccepted = '';
+      }
+      return;                 // swallow Shift+Backspace
+    }
     clearSuggestion();
     child.write(chunk);
-    if (type === 'edit') scheduleSuggest();
+    if (type === 'edit') { lastAccepted = ''; scheduleSuggest(); }
+    else if (type === 'enter' || type === 'clear') lastAccepted = '';
   });
 
   process.stdout.on('resize', () => {

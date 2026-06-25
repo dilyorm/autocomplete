@@ -32,6 +32,21 @@ test('tracker: decodes win32-input-mode records, ignores key-up/focus', () => {
   assert.equal(t.buffer, 'a');
 });
 
+test('tracker: Shift+Backspace -> undo, buffer untouched', () => {
+  const t = new InputTracker();
+  t.feed('\x1b[65;30;97;1;32;1_');                 // 'a'
+  assert.equal(t.feed('\x1b[8;14;8;1;16;1_'), 'undo');  // Cs=16 -> Shift
+  assert.equal(t.buffer, 'a');                     // undo does not pop here (relay does)
+  assert.equal(t.feed('\x1b[8;14;8;1;32;1_'), 'edit');  // plain backspace still edits
+  assert.equal(t.buffer, '');
+});
+
+test('providers.clean: drops chatty refusals, keeps real completions', () => {
+  assert.equal(_internal.clean("I don't have enough context to complete.", ''), '');
+  assert.equal(_internal.clean('Could you provide more?', ''), '');
+  assert.equal(_internal.clean(' a dark mode toggle', 'add'), ' a dark mode toggle');
+});
+
 test('tracker: accept appends suggestion suffix', () => {
   const t = new InputTracker();
   t.feed('add ');

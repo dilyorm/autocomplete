@@ -1,11 +1,17 @@
 {
   "name": "acomplete",
   "version": "0.1.0",
-  "description": "Tab autocomplete for prompts typed into terminal coding agents (Claude Code, Codex)",
+  "description": "Tab autocomplete (inline ghost text) for prompts you type into terminal coding agents like Claude Code and Codex",
   "type": "module",
   "bin": {
     "acomplete": "bin/acomplete.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test"
   },
@@ -14,5 +20,27 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "keywords": [
+    "autocomplete",
+    "ghost-text",
+    "claude-code",
+    "codex",
+    "terminal",
+    "cli",
+    "pty",
+    "ai",
+    "prompt",
+    "tab-completion"
+  ],
+  "author": "dilyorm",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dilyorm/autocomplete.git"
+  },
+  "homepage": "https://github.com/dilyorm/autocomplete#readme",
+  "bugs": {
+    "url": "https://github.com/dilyorm/autocomplete/issues"
   }
 }

@@ -10,11 +10,26 @@ const FAST = {
 };
 
 const SYSTEM =
-  'You autocomplete prompts a user is typing to a terminal coding agent. ' +
-  'Given their PARTIAL prompt plus context, output ONLY the text that should ' +
-  'continue from where they stopped — do NOT repeat what they typed. Either a ' +
-  'short word/phrase or a fuller useful continuation, your choice. Output ' +
-  'nothing if no good completion. No quotes, no markdown, no explanation.';
+  'You are an inline autocomplete for prompts a developer is typing to a ' +
+  'terminal coding agent. Output ONLY the raw text that should continue from ' +
+  'the cursor — do NOT repeat what they typed. No preamble, no explanation, no ' +
+  'questions, no quotes, no markdown. If you cannot confidently continue, ' +
+  'output NOTHING (an empty response). Never describe or comment on the input. ' +
+  'Keep it natural: a few words up to one sentence.';
+
+// Reject chatty refusals / meta-commentary the model emits instead of a completion.
+const JUNK = [
+  "i don't", "i do not", "i can't", "i cannot", "i'm unable", "i am unable",
+  'enough context', 'not enough', 'could you', 'please provide', 'provide more',
+  'partial prompt', 'appears to', 'i need', "i'm not sure", 'as an ai',
+  'no good completion', 'unclear', "let me know"
+];
+function isJunk(t) {
+  if (!t) return true;
+  const l = t.toLowerCase();
+  if (t.trim().endsWith('?')) return true;
+  return JUNK.some(p => l.includes(p));
+}
 
 function userMsg({ buffer, conversation, skills }) {
   return [
@@ -25,9 +40,12 @@ function userMsg({ buffer, conversation, skills }) {
 }
 
 // Strip a leading echo of the buffer if the model repeated it anyway.
+// Keep a leading space (so "add" + " a toggle" doesn't glue), trim only the end.
 function clean(text, buffer) {
-  let t = (text || '').replace(/^["'`]|["'`]$/g, '').trim();
+  let t = (text || '').replace(/^[\r\n]+/, '').replace(/\s+$/, '');
+  t = t.replace(/^["'`]/, '').replace(/["'`]$/, '');
   if (buffer && t.toLowerCase().startsWith(buffer.toLowerCase())) t = t.slice(buffer.length);
+  if (isJunk(t)) return '';
   return t;
 }
 

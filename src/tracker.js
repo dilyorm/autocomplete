@@ -41,8 +41,11 @@ export class InputTracker {
   _csi(final, params) {
     if (final !== '_') return null;            // not a win32 record (focus/arrow/etc) -> ignore
     const p = params.split(';');
+    const vk = Number(p[0] || 0);
     const uc = Number(p[2] || 0);
+    const cs = Number(p[4] || 0);              // control-key state
     if (p[3] !== '1') return null;             // ignore key-up
+    if (vk === 8 && (cs & 0x10)) return 'undo'; // Shift+Backspace (win32 only)
     if (!uc) return null;                      // non-character key (arrows, F-keys)
     return this._char(uc);
   }
