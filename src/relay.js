@@ -22,25 +22,32 @@ export function startRelay(agentArgv, cfg) {
   const transcript = new Transcript();
   const skills = installedSkills();
 
-  let suggestion = '';
+  let suggestion = '';   // full suggestion (what Tab injects)
+  let shown = '';        // truncated text currently drawn on screen
   let timer = null;
   let reqId = 0;
 
   const out = s => process.stdout.write(s);
 
+  // Inline ghost text: draw dim text AT the cursor (input end), then restore
+  // the cursor so it stays put and the suggestion appears to the right.
+  // ponytail ceiling: single-line assumption — column estimated as the prompt
+  // glyph + typed length; long/ wrapped input degrades gracefully (skips draw).
   function renderSuggestion() {
     if (!suggestion) return;
-    const row = process.stdout.rows || rows;
-    const width = (process.stdout.columns || cols) - 3;
-    const text = suggestion.replace(/\s+/g, ' ').slice(0, Math.max(0, width));
-    out(`\x1b7\x1b[${row};1H\x1b[2K${DIM}↹ ${text}${RESET}\x1b8`);
+    const width = process.stdout.columns || cols;
+    const col = 2 + tracker.buffer.length;      // "❯ " + typed text
+    const avail = width - col - 1;
+    if (avail < 4) return;
+    shown = suggestion.replace(/\r?\n/g, ' ').slice(0, avail);
+    out(`\x1b7${DIM}${shown}${RESET}\x1b8`);     // save cursor, dim text, restore
   }
 
   function clearSuggestion() {
-    if (!suggestion) return;
     suggestion = '';
-    const row = process.stdout.rows || rows;
-    out(`\x1b7\x1b[${row};1H\x1b[2K\x1b8`);
+    if (!shown) return;
+    shown = '';
+    out(`\x1b7\x1b[0K\x1b8`);                     // erase from cursor to end of line
   }
 
   function scheduleSuggest() {
