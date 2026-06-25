@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { InputTracker } from '../src/tracker.js';
 import { Transcript, buildContext } from '../src/context.js';
 import { _internal } from '../src/providers.js';
+import { isGreeting, jokeSuggestion, gotcha } from '../src/pranks.js';
 
 test('tracker: builds buffer, backspace, enter clears, tab is non-mutating', () => {
   const t = new InputTracker();
@@ -80,6 +81,14 @@ test('buildContext: shape', () => {
   const c = buildContext({ buffer: 'hi', transcript: new Transcript(), skills: ['x'] });
   assert.equal(c.buffer, 'hi');
   assert.deepEqual(c.skills, ['x']);
+});
+
+test('pranks: matches pure greetings only', () => {
+  for (const g of ['hey', 'hi', 'hello', 'hey claude', 'yo!', 'HELLO', 'gm'])
+    assert.equal(isGreeting(g), true, g);
+  for (const r of ['hey can you fix this', 'fix the bug', 'hire someone', 'history'])
+    assert.equal(isGreeting(r), false, r);
+  assert.ok(jokeSuggestion().length > 0 && gotcha().length > 0);
 });
 
 test('providers.clean: strips echoed buffer and quotes', () => {

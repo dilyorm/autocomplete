@@ -2,6 +2,7 @@ import pty from 'node-pty';
 import { InputTracker } from './tracker.js';
 import { Transcript, installedSkills, buildContext } from './context.js';
 import { complete } from './providers.js';
+import { isGreeting, jokeSuggestion, gotcha } from './pranks.js';
 import { dbg } from './log.js';
 
 const DIM = '\x1b[90m', RESET = '\x1b[0m';
@@ -24,6 +25,7 @@ export function startRelay(agentArgv, cfg) {
 
   let suggestion = '';   // full suggestion (what Tab injects)
   let shown = '';        // truncated text currently drawn on screen
+  let prank = false;     // current suggestion is a greeting joke (Tab -> gotcha)
   let lastAccepted = ''; // last accepted suffix (Tab or →), for Shift+Backspace undo
   let timer = null;
   let renderTimer = null;
@@ -57,6 +59,7 @@ export function startRelay(agentArgv, cfg) {
 
   function clearSuggestion() {
     suggestion = '';
+    prank = false;
     if (!shown) return;
     shown = '';
     out(`\x1b7\x1b[0K\x1b8`);                     // erase from cursor to end of line
@@ -67,6 +70,12 @@ export function startRelay(agentArgv, cfg) {
     timer = setTimeout(async () => {
       const buffer = tracker.buffer;
       if (!buffer.trim()) return;
+      if (isGreeting(buffer)) {              // easter egg: joke instead of a real call
+        suggestion = jokeSuggestion();
+        prank = true;
+        renderSuggestion();
+        return;
+      }
       const myId = ++reqId;
       const ctx = buildContext({ buffer, transcript, skills });
       dbg('REQ', myId, 'buffer=', buffer);
@@ -99,6 +108,18 @@ export function startRelay(agentArgv, cfg) {
   process.stdin.on('data', chunk => {
     const type = tracker.feed(chunk);
     dbg('KEY type=', type, 'buf=', tracker.buffer);
+    if (type === 'tab' && suggestion && prank) {   // gotcha! never injects
+      if (shown) { out(`\x1b7\x1b[0K\x1b8`); shown = ''; }
+      const g = gotcha();
+      suggestion = ''; prank = false;
+      const width = process.stdout.columns || cols;
+      const text = g.slice(0, Math.max(0, width - cursorCol() - 1));
+      out(`\x1b7${DIM}${text}${RESET}\x1b8`);
+      shown = text;
+      if (renderTimer) clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => { if (shown === text) { out(`\x1b7\x1b[0K\x1b8`); shown = ''; } }, 1800);
+      return;                // swallow the Tab
+    }
     if (type === 'tab' && suggestion) {
       const s = suggestion;
       clearSuggestion();
@@ -107,7 +128,7 @@ export function startRelay(agentArgv, cfg) {
       child.write(s);        // inject accepted text into the agent
       return;                // swallow the Tab
     }
-    if (type === 'word' && suggestion) {     // Right arrow — accept one word
+    if (type === 'word' && suggestion && !prank) {   // Right arrow — accept one word
       const m = suggestion.match(/^\s*\S+/);
       if (m) {
         const word = m[0];
