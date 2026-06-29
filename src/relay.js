@@ -26,6 +26,8 @@ export function startRelay(agentArgv, cfg) {
   let suggestion = '';   // full suggestion (what Tab injects)
   let shown = '';        // truncated text currently drawn on screen
   let prank = false;     // current suggestion is a greeting joke (Tab -> gotcha)
+  let sticky = '';       // gotcha line kept on screen; redrawn after every agent
+                         // repaint so the TUI can't wipe it. Cleared on next key.
   let undoState = null;  // {backspaces, insert, resultBuffer} — Shift+Backspace target
                          // (undoes the last Tab/→ accept OR a Ctrl+R rephrase)
   let timer = null;
@@ -64,6 +66,23 @@ export function startRelay(agentArgv, cfg) {
     if (!shown) return;
     shown = '';
     out(`\x1b7\x1b[0K\x1b8`);                     // erase from cursor to end of line
+  }
+
+  // Sticky gotcha: same inline draw as renderSuggestion, but kept in `sticky` so
+  // child.onData can re-stamp it after the agent repaints over it. Stays until a key.
+  function renderSticky() {
+    if (!sticky) return;
+    const width = process.stdout.columns || cols;
+    const avail = width - cursorCol() - 1;
+    if (avail < 4) return;
+    shown = sticky.replace(/\r?\n/g, ' ').slice(0, avail);
+    out(`\x1b7${DIM}${shown}${RESET}\x1b8`);
+  }
+
+  function clearSticky() {
+    if (!sticky) return;
+    sticky = '';
+    if (shown) { shown = ''; out(`\x1b7\x1b[0K\x1b8`); }
   }
 
   function scheduleSuggest() {
@@ -112,6 +131,7 @@ export function startRelay(agentArgv, cfg) {
   child.onData(data => {
     out(data);
     transcript.push(data);
+    if (sticky) renderSticky();   // re-stamp the gotcha the agent just painted over
   });
 
   child.onExit(({ exitCode }) => {
@@ -130,14 +150,12 @@ export function startRelay(agentArgv, cfg) {
     dbg('KEY type=', type, 'buf=', tracker.buffer);
     if (type === 'tab' && suggestion && prank) {   // gotcha! never injects
       if (shown) { out(`\x1b7\x1b[0K\x1b8`); shown = ''; }
-      const g = gotcha();
       suggestion = ''; prank = false;
-      const width = process.stdout.columns || cols;
-      const text = g.slice(0, Math.max(0, width - cursorCol() - 1));
-      out(`\x1b7${DIM}${text}${RESET}\x1b8`);
-      shown = text;          // persists until the next keystroke clears it (no auto-erase)
+      sticky = gotcha();     // sticky: redrawn after every repaint, until next key
+      renderSticky();
       return;                // swallow the Tab
     }
+    if (sticky) clearSticky();   // any other key dismisses the gotcha
     if (type === 'tab' && suggestion) {
       const s = suggestion;
       clearSuggestion();
