@@ -1,6 +1,6 @@
 {
   "name": "acomplete",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Tab autocomplete (inline ghost text) for prompts you type into terminal coding agents like Claude Code and Codex",
   "type": "module",
   "bin": {
