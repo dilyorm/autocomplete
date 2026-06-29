@@ -1,7 +1,7 @@
 import pty from 'node-pty';
 import { InputTracker } from './tracker.js';
 import { Transcript, installedSkills, buildContext } from './context.js';
-import { complete } from './providers.js';
+import { complete, rephrase } from './providers.js';
 import { isGreeting, jokeSuggestion, gotcha } from './pranks.js';
 import { dbg } from './log.js';
 
@@ -26,7 +26,8 @@ export function startRelay(agentArgv, cfg) {
   let suggestion = '';   // full suggestion (what Tab injects)
   let shown = '';        // truncated text currently drawn on screen
   let prank = false;     // current suggestion is a greeting joke (Tab -> gotcha)
-  let lastAccepted = ''; // last accepted suffix (Tab or →), for Shift+Backspace undo
+  let undoState = null;  // {backspaces, insert, resultBuffer} — Shift+Backspace target
+                         // (undoes the last Tab/→ accept OR a Ctrl+R rephrase)
   let timer = null;
   let renderTimer = null;
   let reqId = 0;
@@ -89,6 +90,25 @@ export function startRelay(agentArgv, cfg) {
     }, cfg.debounceMs);
   }
 
+  // Ctrl+R: ask the model to rewrite the whole prompt, then replace it in the
+  // agent's input box (backspace the old text, type the new). Shift+Backspace
+  // restores the original via undoState. ponytail ceiling: the backspaces assume
+  // a single-line prompt; a multi-line (Shift+Enter) prompt may not erase cleanly.
+  async function rephrasePrompt(original) {
+    if (!original.trim()) return;
+    const myId = ++reqId;     // also invalidates any in-flight suggestion
+    const ctx = buildContext({ buffer: original, transcript, skills });
+    dbg('REPHRASE-REQ', myId, original);
+    const text = await rephrase(cfg, ctx);
+    dbg('REPHRASE-RESP', myId, text);
+    if (!text || text === original) return;
+    if (myId !== reqId || tracker.buffer !== original) return;   // user moved on
+    child.write('\x7f'.repeat(original.length));   // erase the old prompt
+    child.write(text);                              // type the rewritten one
+    tracker.buffer = text;
+    undoState = { backspaces: text.length, insert: original, resultBuffer: original };
+  }
+
   child.onData(data => {
     out(data);
     transcript.push(data);
@@ -115,16 +135,15 @@ export function startRelay(agentArgv, cfg) {
       const width = process.stdout.columns || cols;
       const text = g.slice(0, Math.max(0, width - cursorCol() - 1));
       out(`\x1b7${DIM}${text}${RESET}\x1b8`);
-      shown = text;
-      if (renderTimer) clearTimeout(renderTimer);
-      renderTimer = setTimeout(() => { if (shown === text) { out(`\x1b7\x1b[0K\x1b8`); shown = ''; } }, 1800);
+      shown = text;          // persists until the next keystroke clears it (no auto-erase)
       return;                // swallow the Tab
     }
     if (type === 'tab' && suggestion) {
       const s = suggestion;
       clearSuggestion();
+      const before = tracker.buffer;
       tracker.accept(s);
-      lastAccepted = s;
+      undoState = { backspaces: s.length, insert: '', resultBuffer: before };
       child.write(s);        // inject accepted text into the agent
       return;                // swallow the Tab
     }
@@ -134,8 +153,9 @@ export function startRelay(agentArgv, cfg) {
         const word = m[0];
         if (shown) { out(`\x1b7\x1b[0K\x1b8`); shown = ''; }   // erase current ghost
         suggestion = suggestion.slice(word.length);
+        const before = tracker.buffer;
         tracker.accept(word);
-        lastAccepted = word;
+        undoState = { backspaces: word.length, insert: '', resultBuffer: before };
         child.write(word);
         // Re-draw the remaining ghost after the agent advances the cursor.
         if (renderTimer) clearTimeout(renderTimer);
@@ -143,20 +163,25 @@ export function startRelay(agentArgv, cfg) {
       }
       return;                // swallow the arrow
     }
-    if (type === 'undo') {    // Shift+Backspace — remove the last accepted suffix
+    if (type === 'rephrase') {   // Ctrl+R — rewrite the whole prompt in place
       clearSuggestion();
-      if (lastAccepted) {
-        const n = lastAccepted.length;
-        tracker.buffer = tracker.buffer.slice(0, -n);
-        child.write('\x7f'.repeat(n));   // backspaces into the agent
-        lastAccepted = '';
+      rephrasePrompt(tracker.buffer);
+      return;                // swallow Ctrl+R
+    }
+    if (type === 'undo') {    // Shift+Backspace — restore pre-accept / pre-rephrase text
+      clearSuggestion();
+      if (undoState) {
+        child.write('\x7f'.repeat(undoState.backspaces));    // erase current text
+        if (undoState.insert) child.write(undoState.insert); // put the original back
+        tracker.buffer = undoState.resultBuffer;
+        undoState = null;
       }
       return;                 // swallow Shift+Backspace
     }
     clearSuggestion();
     child.write(chunk);
-    if (type === 'edit') { lastAccepted = ''; scheduleSuggest(); }
-    else if (type === 'enter' || type === 'clear') lastAccepted = '';
+    if (type === 'edit') { undoState = null; scheduleSuggest(); }
+    else if (type === 'enter' || type === 'clear') undoState = null;
   });
 
   process.stdout.on('resize', () => {

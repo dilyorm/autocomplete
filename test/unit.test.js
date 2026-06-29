@@ -56,6 +56,21 @@ test('tracker: cross-platform Shift+Backspace -> undo (kitty / xterm)', () => {
   assert.equal(t.feed('\x1b[127;1u'), 'edit');           // no shift = plain backspace
 });
 
+test('tracker: Ctrl+R -> rephrase (win32 / kitty / xterm / plain)', () => {
+  const t = new InputTracker();
+  assert.equal(t.feed('\x1b[82;19;18;1;8;1_'), 'rephrase');   // win32 VK_R + LEFT_CTRL
+  assert.equal(t.feed('\x1b[114;5u'), 'rephrase');             // kitty, ctrl mod
+  assert.equal(t.feed('\x1b[27;5;114~'), 'rephrase');          // xterm modifyOtherKeys
+  assert.equal(t.feed('\x12'), 'rephrase');                    // plain Ctrl+R byte (0x12)
+  assert.equal(t.feed('\x1b[114;1u'), 'edit');                 // plain 'r' (no ctrl) -> edit
+  assert.equal(t.buffer, 'r');
+});
+
+test('providers.cleanRewrite: strips wrapping quotes/whitespace, keeps rewrite', () => {
+  assert.equal(_internal.cleanRewrite('\n "Add dark mode toggle" '), 'Add dark mode toggle');
+  assert.equal(_internal.cleanRewrite("I don't have enough context"), "I don't have enough context");
+});
+
 test('providers.clean: drops chatty refusals, keeps real completions', () => {
   assert.equal(_internal.clean("I don't have enough context to complete.", ''), '');
   assert.equal(_internal.clean('Could you provide more?', ''), '');

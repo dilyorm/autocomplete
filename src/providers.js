@@ -17,6 +17,12 @@ const SYSTEM =
   'output NOTHING (an empty response). Never describe or comment on the input. ' +
   'Keep it natural: a few words up to one sentence.';
 
+const REPHRASE_SYSTEM =
+  'You rewrite a prompt a developer is typing to a terminal coding agent so it ' +
+  'is clearer, more specific, and well-structured, while preserving their intent ' +
+  'and every concrete detail. Output ONLY the rewritten prompt as plain text — ' +
+  'no preamble, no quotes, no markdown, no explanation, no extra options.';
+
 // Reject chatty refusals / meta-commentary the model emits instead of a completion.
 const JUNK = [
   "i don't", "i do not", "i can't", "i cannot", "i'm unable", "i am unable",
@@ -39,6 +45,21 @@ function userMsg({ buffer, conversation, skills }) {
   ].filter(Boolean).join('\n\n');
 }
 
+function rewriteMsg({ buffer, conversation, skills }) {
+  return [
+    skills?.length ? `Installed skills:\n${skills.join('\n')}` : '',
+    conversation ? `Recent conversation:\n${conversation}` : '',
+    `Prompt to rewrite:\n${buffer}`
+  ].filter(Boolean).join('\n\n');
+}
+
+// Trim a rewrite to a bare prompt: drop wrapping quotes/whitespace. Unlike the
+// completion path we do NOT run isJunk — a rewrite legitimately restates intent.
+function cleanRewrite(t) {
+  return (t || '').replace(/^[\r\n]+/, '').trim()
+    .replace(/^["'`]+/, '').replace(/["'`]+$/, '').trim();
+}
+
 // Strip a leading echo of the buffer if the model repeated it anyway.
 // Keep a leading space (so "add" + " a toggle" doesn't glue), trim only the end.
 function clean(text, buffer) {
@@ -58,15 +79,15 @@ function claudeToken() {
   } catch { return ''; }
 }
 
-async function anthropic({ token, apiKey, model, ctx }) {
+async function anthropic({ token, apiKey, model, system, content, maxTokens }) {
   const headers = { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' };
   if (apiKey) headers['x-api-key'] = apiKey;
   else headers['authorization'] = `Bearer ${token}`;
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', headers,
     body: JSON.stringify({
-      model: model || FAST.anthropic, max_tokens: 64, system: SYSTEM,
-      messages: [{ role: 'user', content: userMsg(ctx) }]
+      model: model || FAST.anthropic, max_tokens: maxTokens, system,
+      messages: [{ role: 'user', content }]
     })
   });
   if (!r.ok) throw new Error(`anthropic ${r.status}`);
@@ -74,13 +95,13 @@ async function anthropic({ token, apiKey, model, ctx }) {
   return j?.content?.[0]?.text || '';
 }
 
-async function openaiLike({ url, apiKey, model, ctx, fallbackModel }) {
+async function openaiLike({ url, apiKey, model, system, content, maxTokens, fallbackModel }) {
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: model || fallbackModel, max_tokens: 64,
-      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userMsg(ctx) }]
+      model: model || fallbackModel, max_tokens: maxTokens,
+      messages: [{ role: 'system', content: system }, { role: 'user', content }]
     })
   });
   if (!r.ok) throw new Error(`${url} ${r.status}`);
@@ -88,16 +109,16 @@ async function openaiLike({ url, apiKey, model, ctx, fallbackModel }) {
   return j?.choices?.[0]?.message?.content || '';
 }
 
-async function gemini({ apiKey, model, ctx }) {
+async function gemini({ apiKey, model, system, content, maxTokens }) {
   const m = model || FAST.gemini;
   const r = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`,
     {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ role: 'user', parts: [{ text: userMsg(ctx) }] }],
-        generationConfig: { maxOutputTokens: 64 }
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: content }] }],
+        generationConfig: { maxOutputTokens: maxTokens }
       })
     });
   if (!r.ok) throw new Error(`gemini ${r.status}`);
@@ -105,12 +126,12 @@ async function gemini({ apiKey, model, ctx }) {
   return j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-async function callProvider(provider, { apiKey, model, ctx }) {
+async function callProvider(provider, { apiKey, model, system, content, maxTokens }) {
   switch (provider) {
-    case 'anthropic': return anthropic({ apiKey, model, ctx });
-    case 'deepseek': return openaiLike({ url: 'https://api.deepseek.com/chat/completions', apiKey, model, ctx, fallbackModel: FAST.deepseek });
-    case 'openai': return openaiLike({ url: 'https://api.openai.com/v1/chat/completions', apiKey, model, ctx, fallbackModel: FAST.openai });
-    case 'gemini': return gemini({ apiKey, model, ctx });
+    case 'anthropic': return anthropic({ apiKey, model, system, content, maxTokens });
+    case 'deepseek': return openaiLike({ url: 'https://api.deepseek.com/chat/completions', apiKey, model, system, content, maxTokens, fallbackModel: FAST.deepseek });
+    case 'openai': return openaiLike({ url: 'https://api.openai.com/v1/chat/completions', apiKey, model, system, content, maxTokens, fallbackModel: FAST.openai });
+    case 'gemini': return gemini({ apiKey, model, system, content, maxTokens });
     default: throw new Error(`unknown provider ${provider}`);
   }
 }
@@ -118,11 +139,12 @@ async function callProvider(provider, { apiKey, model, ctx }) {
 // Returns the cleaned completion suffix, or '' on any failure (never throws).
 export async function complete(cfg, ctx) {
   try {
+    const system = SYSTEM, content = userMsg(ctx), maxTokens = 64;
     let text = '';
     if (cfg.mode === 'auto') {
       const token = claudeToken();
       if (!token) throw new Error('no claude token');
-      text = await anthropic({ token, model: cfg.model, ctx });
+      text = await anthropic({ token, model: cfg.model, system, content, maxTokens });
     } else if (cfg.mode === 'free') {
       if (!cfg.proxyUrl) throw new Error('no proxyUrl');     // proxy wired in step 2
       const r = await fetch(cfg.proxyUrl, {
@@ -134,7 +156,7 @@ export async function complete(cfg, ctx) {
       text = (await r.json())?.text || '';
     } else { // byo
       if (!cfg.apiKey) throw new Error('no apiKey');
-      text = await callProvider(cfg.provider, { apiKey: cfg.apiKey, model: cfg.model, ctx });
+      text = await callProvider(cfg.provider, { apiKey: cfg.apiKey, model: cfg.model, system, content, maxTokens });
     }
     return clean(text, ctx.buffer);
   } catch {
@@ -142,4 +164,26 @@ export async function complete(cfg, ctx) {
   }
 }
 
-export const _internal = { clean, claudeToken };
+// Returns a rewritten version of the whole prompt, or '' on any failure.
+// free (proxy) mode doesn't support rephrase yet, so it no-ops there.
+export async function rephrase(cfg, ctx) {
+  try {
+    const system = REPHRASE_SYSTEM, content = rewriteMsg(ctx), maxTokens = 256;
+    let text = '';
+    if (cfg.mode === 'auto') {
+      const token = claudeToken();
+      if (!token) return '';
+      text = await anthropic({ token, model: cfg.model, system, content, maxTokens });
+    } else if (cfg.mode === 'byo') {
+      if (!cfg.apiKey) return '';
+      text = await callProvider(cfg.provider, { apiKey: cfg.apiKey, model: cfg.model, system, content, maxTokens });
+    } else {
+      return '';   // free proxy: unsupported, leave the prompt as-is
+    }
+    return cleanRewrite(text);
+  } catch {
+    return '';
+  }
+}
+
+export const _internal = { clean, cleanRewrite, claudeToken };

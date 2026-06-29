@@ -27,7 +27,7 @@ export class InputTracker {
         while (j < n) { const c = chunk.charCodeAt(j); if (c >= 0x40 && c <= 0x7e) break; j++; }
         if (j < n) {
           const t = ss3 ? this._ss3(chunk[j]) : this._csi(chunk[j], chunk.slice(i + 2, j));
-          if (t === 'tab' || t === 'undo' || t === 'word') return t;
+          if (t === 'tab' || t === 'undo' || t === 'word' || t === 'rephrase') return t;
           if (t) type = t;
           i = j + 1;
           continue;
@@ -35,7 +35,7 @@ export class InputTracker {
       }
       if (chunk[i] === '\x1b') { i++; continue; }   // lone ESC / unknown
       const t = this._char(chunk.charCodeAt(i), chunk[i]);
-      if (t === 'tab') return 'tab';
+      if (t === 'tab' || t === 'rephrase') return t;
       if (t) type = t;
       i++;
     }
@@ -53,6 +53,7 @@ export class InputTracker {
       const vk = Number(p[0] || 0), uc = Number(p[2] || 0), cs = Number(p[4] || 0);
       if (p[3] !== '1') return null;      // ignore key-up
       if (vk === 8 && (cs & 0x10)) return 'undo';   // Shift+Backspace
+      if (vk === 82 && (cs & 0x0c)) return 'rephrase';   // Ctrl+R (L/R ctrl)
       if (vk === 39) return 'word';                  // Right arrow
       if (!uc) return null;
       return this._char(uc);
@@ -62,6 +63,7 @@ export class InputTracker {
     if (final === 'u') {                  // kitty keyboard: code;mods
       const code = Number(p[0] || 0), mods = Number(p[1] || 1);
       if ((code === 8 || code === 127) && shift(mods)) return 'undo';
+      if (code === 114 && ctrl(mods)) return 'rephrase';   // Ctrl+R
       if (mods <= 1) return this._char(code);
       return null;
     }
@@ -69,6 +71,7 @@ export class InputTracker {
       if (p[0] === '27') {
         const mods = Number(p[1] || 1), code = Number(p[2] || 0);
         if ((code === 8 || code === 127) && shift(mods)) return 'undo';
+        if (code === 114 && ctrl(mods)) return 'rephrase';   // Ctrl+R
       }
       return null;                        // focus (I/O handled as null), nav keys
     }
@@ -77,6 +80,7 @@ export class InputTracker {
 
   _char(code, ch) {
     if (code === 9) return 'tab';
+    if (code === 18) return 'rephrase';   // Ctrl+R on plain terminals (0x12)
     if (code === 13 || code === 10) { this.buffer = ''; return 'enter'; }
     if (code === 8 || code === 127) { this.buffer = this.buffer.slice(0, -1); return 'edit'; }
     if (code === 27 || code === 3 || code === 21) { this.buffer = ''; return 'clear'; }
@@ -90,3 +94,5 @@ export class InputTracker {
 
 // kitty/xterm modifier code: 1=none, 2=shift, 3=alt, ... (1 + bitmask). Shift = bit 0.
 function shift(mods) { return ((Number(mods) - 1) & 1) === 1; }
+// Ctrl = bit 2 (value 4) in the kitty/xterm modifier bitmask.
+function ctrl(mods) { return ((Number(mods) - 1) & 4) === 4; }

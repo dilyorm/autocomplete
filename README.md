@@ -6,6 +6,8 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
+![acomplete demo](docs/demo.svg)
+
 ```
 ❯ add a dark mode toggle␣that persists the preference in localStorage
   └ you typed ──────────┘ └─ grey ghost text, press Tab ──────────────┘
@@ -20,6 +22,7 @@ Terminal agents own their input box — there's no plugin hook for autocomplete.
 - **Inline ghost text** — dim suggestion at the cursor, not a popup.
 - **Context-aware** — uses your partial prompt, the recent conversation on screen, and your installed Claude Code skills.
 - **One key** — `Tab` accepts the whole suggestion, `→` accepts one word, `Shift+Backspace` undoes the last accept, typing dismisses.
+- **Rephrase in place** — `Ctrl+R` rewrites your whole prompt to be clearer; `Shift+Backspace` puts the original back.
 - **Zero-setup auth** — reuses your existing Claude Code login by default. No API key needed.
 - **Bring your own model** — or plug in Anthropic / DeepSeek / OpenAI / Gemini.
 - **Never in your way** — on any error it degrades to a plain transparent passthrough.
@@ -54,7 +57,8 @@ Type a prompt, pause briefly, and a grey suggestion appears. **Tab** to accept.
 | --- | --- |
 | `Tab` | accept the whole suggestion |
 | `→` (Right arrow) | accept one word |
-| `Shift+Backspace` | undo the last accept |
+| `Ctrl+R` | rephrase the whole prompt in place |
+| `Shift+Backspace` | undo the last accept / rephrase |
 | *keep typing* | dismiss / refine |
 
 ## Configuration
@@ -103,7 +107,7 @@ It mirrors your input from raw keystrokes (decoding Windows `win32-input-mode` r
 ## Roadmap
 
 - [ ] Self-hostable free-tier proxy
-- [ ] Demo GIF
+- [x] Demo (see [`docs/demo.svg`](docs/demo.svg))
 
 ## Contributing
 
